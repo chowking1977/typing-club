@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="指间打字练习室：中文界面的英文打字训练工具，包含指法课程、单词与句子练习、逐字符反馈、速度与准确率统计。">
+  <title>指间 · 打字练习室</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script>
+    // 首屏先按已保存的主题与语言着色，避免深色系统下闪白
+    (function () {
+      try {
+        var saved = JSON.parse(localStorage.getItem("zhijian.typing.v1") || "{}");
+        var theme = (saved.settings && saved.settings.theme) || "auto";
+        if (theme === "auto") {
+          theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+        var lang = (saved.settings && saved.settings.language) || "zh";
+        document.documentElement.setAttribute("lang", lang === "zh" ? "zh-CN" : lang);
+      } catch (err) { /* 保持默认浅色与中文 */ }
+    })();
+  </script>
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.2 12 3l9 7.2V21H3z"/><path d="M9.5 21v-6h5v6"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V11"/><path d="M10 20V5"/><path d="M16 20v-7"/><path d="M22 20H2"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.6C10.7 5.2 8.8 4.5 6 4.5H3v13.9h4c2.4 0 4.2.7 5 2 .8-1.3 2.6-2 5-2h4V4.5h-3c-2.8 0-4.7.7-6 2.1z"/><path d="M12 6.6v13.8"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M3 6h9M18 6h3M3 12h3M12 12h9M3 18h11M20 18h1"/><circle cx="15" cy="6" r="2.4"/><circle cx="9" cy="12" r="2.4"/><circle cx="17" cy="18" r="2.4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6L19 12z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.6 9.4 18 20 6.6"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.7-6"/><path d="M20 4v5h-5"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.2 8.6a5 5 0 0 1 0 6.8"/><path d="M18.2 5.8a9 9 0 0 1 0 12.4"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3c1.1 4-3 5.2-3 9a3 3 0 0 0 6 0c0-1.1-.5-2-1-3 3 1.5 4 3.9 4 6.2a6 6 0 0 1-12 0C6 11.2 9 9 12 3z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 14H11l-1 7.5L19 10h-6.5z"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v4.6a4 4 0 0 1-8 0z"/><path d="M8 5.5H5v2a3 3 0 0 0 3 3"/><path d="M16 5.5h3v2a3 3 0 0 1-3 3"/><path d="M12 12.6V17"/><path d="M8 21h8"/><path d="M9.5 21v-3.4h5V21"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9.5 14h5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9.5 7V4h5v3"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10.5 11v5.5M13.5 11v5.5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.3l3.4 2"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.4 2.7 5.5 6 .9-4.4 4.3 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.3 9.8l6-.9z"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="m14.5 5.5 4 4"/></symbol>
+  </svg>
+
+  <input id="keySink" class="key-sink" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" tabindex="-1" aria-hidden="true">
+
+  <div class="app" id="app">
+    <aside class="sidebar">
+      <a class="brand" href="#/home">
+        <span class="brand-mark" data-i18n="brand.mark">指</span>
+        <span class="brand-text">
+          <strong data-i18n="brand.name">指间</strong>
+          <small data-i18n="brand.sub">打字练习室</small>
+        </span>
+      </a>
+
+      <nav class="nav" id="nav">
+        <a href="#/home" data-nav="home"><svg><use href="#i-home"/></svg><span data-i18n="nav.home">练习台</span></a>
+        <a href="#/courses" data-nav="courses"><svg><use href="#i-grid"/></svg><span data-i18n="nav.courses">课程库</span></a>
+        <a href="#/stats" data-nav="stats"><svg><use href="#i-chart"/></svg><span data-i18n="nav.stats">数据统计</span></a>
+        <a href="#/errors" data-nav="errors"><svg><use href="#i-book"/></svg><span data-i18n="nav.errors">错词本</span><em class="nav-badge" id="navErrorBadge" hidden>0</em></a>
+        <a href="#/settings" data-nav="settings"><svg><use href="#i-settings"/></svg><span data-i18n="nav.settings">设置</span></a>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="profile-card">
+        <div class="profile-row">
+          <span class="level-pill" id="profileLevel">Lv.1</span>
+          <span class="streak-chip" id="profileStreak"><svg><use href="#i-flame"/></svg>连续 0 天</span>
+        </div>
+        <div class="xp-track"><i id="profileXpBar" style="width:0%"></i></div>
+        <div class="xp-text" id="profileXpText">0 / 300 XP</div>
+      </div>
+      <p class="sidebar-note" data-i18n="sidebar.note">所有记录仅保存在本机浏览器</p>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="pageTitle">练习台</h1>
+          <p id="pageSub">保持节奏，先把每一关打稳。</p>
+        </div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="themeBtn" title="切换深浅色" aria-label="切换深浅色" data-i18n-title="theme.toggle" data-i18n-aria="theme.toggle">
+            <svg class="ico-sun"><use href="#i-sun"/></svg>
+            <svg class="ico-moon"><use href="#i-moon"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="views" id="views">
+        <section class="view" data-view="home" hidden></section>
+        <section class="view" data-view="courses" hidden></section>
+        <section class="view" data-view="stats" hidden></section>
+        <section class="view" data-view="errors" hidden></section>
+        <section class="view" data-view="settings" hidden></section>
+      </div>
+    </main>
+  </div>
+
+  <div class="practice-layer" id="practiceLayer" hidden>
+    <div class="practice-shell">
+      <div class="practice-head">
+        <button class="icon-btn" id="practiceBack" title="退出练习" aria-label="退出练习" data-i18n-title="practice.exit" data-i18n-aria="practice.exit"><svg><use href="#i-arrow-left"/></svg></button>
+        <div class="practice-heading">
+          <div class="practice-course" id="pCourse">基础指法</div>
+          <div class="practice-title" id="pTitle">基准键 F / J</div>
+        </div>
+        <div class="practice-tools">
+          <button class="ghost-btn small" id="pRestart"><svg><use href="#i-refresh"/></svg><span data-i18n="practice.restart">重来</span></button>
+        </div>
+      </div>
+
+      <div class="progress-track"><i id="pProgress" style="width:0%"></i></div>
+
+      <div class="live-stats">
+        <div class="live-stat"><span class="live-label" data-i18n="practice.stat.speed">速度</span><span class="live-value" id="pWpm">0</span><span class="live-unit">WPM</span></div>
+        <div class="live-stat"><span class="live-label" data-i18n="practice.stat.accuracy">正确率</span><span class="live-value" id="pAcc">100</span><span class="live-unit">%</span></div>
+        <div class="live-stat"><span class="live-label" data-i18n="practice.stat.time">用时</span><span class="live-value" id="pTime">0:00</span></div>
+        <div class="live-stat"><span class="live-label" data-i18n="practice.stat.combo">连击</span><span class="live-value" id="pCombo">0</span></div>
+        <div class="live-stat live-stat-progress"><span class="live-label" data-i18n="practice.stat.progress">进度</span><span class="live-value" id="pCount">0 / 0</span></div>
+      </div>
+
+      <div class="stage" id="stage"></div>
+
+      <div class="keyboard-wrap" id="keyboardWrap">
+        <div class="keyboard" id="keyboard"></div>
+        <div class="keyboard-legend">
+          <span><i class="legend-dot expected"></i><span data-i18n="practice.legend.next">下一个键</span></span>
+          <span><i class="legend-dot hot"></i><span data-i18n="practice.legend.hot">本次易错</span></span>
+          <span class="legend-note" data-i18n="practice.legend.note">F / J 键上有定位凸起</span>
+        </div>
+      </div>
+
+      <div class="practice-foot">
+        <span id="pFootHint" data-i18n="practice.foot">按任意字母键开始 · 退格键删除 · Esc 退出</span>
+      </div>
+    </div>
+
+    <div class="result-layer" id="resultLayer" hidden></div>
+  </div>
+
+  <div class="modal-layer" id="modalLayer" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script src="assets/i18n.js"></script>
+  <script src="assets/lang/zh.js"></script>
+  <script src="assets/lang/en.js"></script>
+  <script src="assets/data.js"></script>
+  <script src="assets/store.js"></script>
+  <script src="assets/speech.js"></script>
+  <script src="assets/practice.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
