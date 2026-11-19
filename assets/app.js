@@ -6,10 +6,11 @@
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
   var t = function (key, params) { return window.I18N ? window.I18N.t(key, params) : key; };
 
-  var VIEWS = ["home", "courses", "stats", "errors", "settings"];
+  var VIEWS = ["home", "courses", "manage", "stats", "errors", "settings"];
   var VIEW_META = {
     home: { titleKey: "view.home.title", subKey: "view.home.sub" },
     courses: { titleKey: "view.courses.title", subKey: "view.courses.sub" },
+    manage: { titleKey: "view.manage.title", subKey: "view.manage.sub" },
     stats: { titleKey: "view.stats.title", subKey: "view.stats.sub" },
     errors: { titleKey: "view.errors.title", subKey: "view.errors.sub" },
     settings: { titleKey: "view.settings.title", subKey: "view.settings.sub" }
@@ -80,14 +81,16 @@
     }, 2800);
   }
 
-  function openModal(html) {
+  function openModal(html, wide) {
     els.modal.innerHTML = html;
+    els.modal.classList.toggle("wide", !!wide);
     els.modalLayer.hidden = false;
     document.body.classList.add("modal-open");
   }
 
   function closeModal() {
     els.modalLayer.hidden = true;
+    els.modal.classList.remove("wide");
     els.modal.innerHTML = "";
     document.body.classList.remove("modal-open");
   }
@@ -781,8 +784,9 @@
           toast(t("import.none"));
           return;
         }
+        var importCount = window.Store.state.customCourses.filter(function (course) { return course.origin === "import"; }).length;
         var title = (titleInput && titleInput.value.trim()) ||
-          t("import.defaultTitle", { n: window.Store.state.imports.length + 1 });
+          t("import.defaultTitle", { n: importCount + 1 });
         var pack = {
           id: "imp-" + Date.now().toString(36),
           title: title.slice(0, 30),
@@ -793,8 +797,13 @@
           kind: result.kind,
           stats: { duplicates: result.duplicates, rows: result.rows }
         };
-        window.Store.addImport(pack);
-        window.APP_DATA.setImports(window.Store.state.imports);
+        var course = window.APP_DATA.makeImportCourse(pack);
+        if (!course) {
+          toast(t("import.none"));
+          return;
+        }
+        window.Store.addCustomCourse(course);
+        window.APP_DATA.refresh();
         closeModal();
         if (location.hash === "#/courses") {
           renderCourses();
@@ -840,7 +849,7 @@
   }
 
   function renderCourses() {
-    var importedCount = window.Store.state.imports.length;
+    var importedCount = window.APP_DATA.courses.filter(function (course) { return course.origin === "import"; }).length;
     var blocks = window.APP_DATA.courses.map(function (course) {
       var progress = window.Store.courseProgress(course);
       var levels = course.levels.map(function (level, index) {
@@ -854,10 +863,8 @@
             '<span class="course-tag">' + escapeHtml(course.short) + "</span>" +
             "<h2>" + escapeHtml(course.title) + "</h2>" +
             '<span class="course-count">' + t("courses.levels", { done: progress.done, total: progress.total }) + "</span>" +
-            (course.imported
-              ? '<button class="icon-btn tiny course-remove" data-action="remove-import" data-import-id="' +
-                escapeHtml(course.id) + '" title="' + escapeHtml(t("import.removeTitle")) + '" aria-label="' + escapeHtml(t("import.removeTitle")) + '">' + icon("trash") + "</button>"
-              : "") +
+            '<button class="icon-btn tiny course-remove" data-manage="delete-course" data-course-id="' +
+              escapeHtml(course.id) + '" data-from="courses" title="' + escapeHtml(t("manage.deleteCourse")) + '" aria-label="' + escapeHtml(t("manage.deleteCourse")) + '">' + icon("trash") + "</button>" +
           "</div>" +
           '<p class="course-desc">' + escapeHtml(course.desc) + "</p>" +
           '<div class="course-progress"><div class="mini-track"><i style="width:' + progress.percent + '%"></i></div>' +
@@ -887,6 +894,514 @@
           "</div>" +
         "</div>" +
       "</section>";
+  }
+
+  /* ---------- 内容管理 ---------- */
+
+  function newContentId(prefix) {
+    return prefix + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  }
+
+  function findCourseView(courseId) {
+    var list = window.APP_DATA.courses;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === courseId) return list[i];
+    }
+    return null;
+  }
+
+  function copyItems(items) {
+    return (items || []).map(function (item) {
+      var value = window.APP_DATA.normalizeItem(item);
+      return { t: value.t, m: value.m || "" };
+    });
+  }
+
+  // 取得可编辑的课程对象：自建/导入课程直接用 Store 中的对象；
+  // 内置课程首次修改时生成一份修改记录，未改动的关卡文案仍随界面语言切换。
+  function editableCourse(courseId) {
+    var view = findCourseView(courseId);
+    if (!view) return null;
+    if (!view.builtin) return window.Store.findCustomCourse(courseId);
+    var override = window.Store.getCourseOverride(courseId);
+    if (!override) {
+      override = {
+        title: null,
+        mode: view.mode,
+        sequential: view.sequential,
+        targetWpm: view.targetWpm,
+        levels: view.levels.map(function (level) {
+          return {
+            id: level.id,
+            baseId: level.id,
+            title: null,
+            tip: null,
+            mode: level.mode,
+            targetWpm: level.targetWpm,
+            items: copyItems(level.items)
+          };
+        })
+      };
+      window.Store.setCourseOverride(courseId, override);
+    }
+    return override;
+  }
+
+  function findLevelView(courseId, levelId) {
+    var view = findCourseView(courseId);
+    if (!view) return null;
+    for (var i = 0; i < view.levels.length; i++) {
+      if (view.levels[i].id === levelId) return view.levels[i];
+    }
+    return null;
+  }
+
+  function levelUnit(mode) {
+    return mode === "sentence" ? t("manage.unitSentence") : t("manage.unitWord");
+  }
+
+  function contentTotals() {
+    var totals = { courses: 0, levels: 0, words: 0, sentences: 0 };
+    window.APP_DATA.courses.forEach(function (course) {
+      totals.courses += 1;
+      course.levels.forEach(function (level) {
+        totals.levels += 1;
+        if (level.mode === "sentence") totals.sentences += level.items.length;
+        else totals.words += level.items.length;
+      });
+    });
+    return totals;
+  }
+
+  function persistContent() {
+    window.Store.saveContent();
+    window.APP_DATA.refresh();
+  }
+
+  function refreshManage() {
+    if (activeView === "manage") renderManage();
+    else if (activeView === "courses") renderCourses();
+    updateProfile();
+  }
+
+  function manageLevelHtml(course, level, index) {
+    var canMerge = index < course.levels.length - 1 &&
+      course.levels[index + 1].mode === level.mode;
+    var actions =
+      '<button class="mini-btn" data-manage="edit-level" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '">' + t("manage.edit") + "</button>" +
+      '<button class="icon-btn tiny" data-manage="level-up" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '" title="' + escapeHtml(t("manage.moveUp")) + '" aria-label="' + escapeHtml(t("manage.moveUp")) + '">' + icon("arrow-left") + "</button>" +
+      '<button class="icon-btn tiny" data-manage="level-down" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '" title="' + escapeHtml(t("manage.moveDown")) + '" aria-label="' + escapeHtml(t("manage.moveDown")) + '">' + icon("arrow-right") + "</button>" +
+      '<button class="mini-btn" data-manage="split-level" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '"' + (level.items.length < 2 ? ' disabled' : "") + '>' + t("manage.split") + "</button>" +
+      '<button class="mini-btn" data-manage="merge-level" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '"' + (canMerge ? "" : " disabled") + '>' + t("manage.merge") + "</button>" +
+      '<button class="icon-btn tiny danger" data-manage="delete-level" data-course-id="' + escapeHtml(course.id) +
+        '" data-level-id="' + escapeHtml(level.id) + '" title="' + escapeHtml(t("manage.deleteLevel")) + '" aria-label="' + escapeHtml(t("manage.deleteLevel")) + '">' + icon("trash") + "</button>";
+    return '<div class="manage-level" data-course-id="' + escapeHtml(course.id) + '" data-level-id="' + escapeHtml(level.id) + '">' +
+      '<span class="manage-idx">' + String(index + 1).padStart(2, "0") + "</span>" +
+      '<div class="manage-level-main"><strong>' + escapeHtml(level.title) + "</strong>" +
+        "<small>" + level.items.length + " " + levelUnit(level.mode) + " · " + (level.mode === "sentence" ? t("manage.sentences") : t("manage.words")) + "</small></div>" +
+      '<div class="manage-level-actions">' + actions + "</div>" +
+    "</div>";
+  }
+
+  function manageCourseHtml(course) {
+    var words = 0;
+    var sentences = 0;
+    course.levels.forEach(function (level) {
+      if (level.mode === "sentence") sentences += level.items.length;
+      else words += level.items.length;
+    });
+    var flag = course.builtin
+      ? t("manage.builtin") + (course.edited ? " · " + t("manage.editedFlag") : "")
+      : course.origin === "import" ? t("manage.imported") : t("manage.custom");
+    var headActions = "";
+    if (course.builtin) {
+      headActions += '<button class="ghost-btn small" data-manage="copy-course" data-course-id="' + escapeHtml(course.id) + '">' +
+        icon("book") + t("manage.copyCourse") + "</button>";
+    }
+    headActions +=
+      '<button class="ghost-btn small" data-manage="rename-course" data-course-id="' + escapeHtml(course.id) + '">' + icon("pen") + t("manage.rename") + "</button>" +
+      '<button class="ghost-btn small danger" data-manage="delete-course" data-course-id="' + escapeHtml(course.id) + '">' + icon("trash") + t("manage.deleteCourse") + "</button>" +
+      '<button class="ghost-btn small" data-manage="add-level" data-course-id="' + escapeHtml(course.id) + '">' + icon("plus") + t("manage.addLevel") + "</button>";
+
+    return '<section class="card manage-course" data-course-id="' + escapeHtml(course.id) + '">' +
+      '<div class="manage-head">' +
+        '<div class="manage-title"><span class="course-tag">' + escapeHtml(course.short) + "</span><h3>" + escapeHtml(course.title) + "</h3>" +
+          '<span class="manage-flag' + (course.builtin ? " builtin" : "") + '">' + escapeHtml(flag) + "</span></div>" +
+        '<div class="manage-actions">' + headActions + "</div>" +
+      "</div>" +
+      '<p class="manage-meta">' + t("manage.courseMeta", { levels: course.levels.length, words: words, sentences: sentences }) + "</p>" +
+      '<div class="manage-levels">' +
+        (course.levels.length
+          ? course.levels.map(function (level, index) { return manageLevelHtml(course, level, index); }).join("")
+          : '<p class="manage-empty">' + t("manage.noLevels") + "</p>") +
+      "</div>" +
+    "</section>";
+  }
+
+  function renderManage() {
+    var totals = contentTotals();
+    var cards = [
+      { label: t("manage.statCourses"), value: totals.courses, unit: t("manage.unitCourse") },
+      { label: t("manage.statLevels"), value: totals.levels, unit: t("manage.unitLevel") },
+      { label: t("manage.statWords"), value: totals.words, unit: t("manage.unitWord") },
+      { label: t("manage.statSentences"), value: totals.sentences, unit: t("manage.unitSentence") }
+    ].map(function (item) {
+      return '<div class="stat-card compact"><span class="stat-label">' + escapeHtml(item.label) + "</span>" +
+        '<div class="stat-value">' + item.value + "<i>" + escapeHtml(item.unit) + "</i></div></div>";
+    }).join("");
+
+    els.views.manage.innerHTML =
+      '<div class="stat-grid manage-summary">' + cards + "</div>" +
+      '<div class="manage-toolbar">' +
+        '<button class="btn primary" data-manage="new-course">' + icon("plus") + t("manage.newCourse") + "</button>" +
+        '<button class="ghost-btn" data-manage="import">' + icon("book") + t("manage.importCourse") + "</button>" +
+      "</div>" +
+      '<p class="manage-note">' + t("manage.rules") + "</p>" +
+      '<div class="manage-list">' + window.APP_DATA.courses.map(manageCourseHtml).join("") + "</div>";
+  }
+
+  function confirmAction(title, desc, confirmLabel, onConfirm) {
+    openModal(
+      '<div class="modal-head"><h3>' + escapeHtml(title) + '</h3><button class="icon-btn" data-modal-close aria-label="' + escapeHtml(t("session.close")) + '">' + icon("close") + "</button></div>" +
+      '<div class="modal-body"><p>' + escapeHtml(desc) + "</p>" +
+        '<div class="modal-actions"><button class="ghost-btn" data-modal-close>' + t("import.cancel") + "</button>" +
+        '<button class="btn danger-solid" id="confirmActionBtn">' + escapeHtml(confirmLabel) + "</button></div></div>"
+    );
+    var btn = $("#confirmActionBtn");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        closeModal();
+        onConfirm();
+      });
+    }
+  }
+
+  function copyBuiltinCourse(courseId) {
+    var source = window.APP_DATA.courses.filter(function (course) { return course.id === courseId; })[0];
+    if (!source) return null;
+    var id = newContentId("usr");
+    var copy = {
+      id: id,
+      title: source.title + t("manage.copySuffix"),
+      short: t("manage.tag"),
+      desc: t("manage.copyDesc", { title: source.title }),
+      mode: source.mode,
+      sequential: false,
+      targetWpm: source.targetWpm || 24,
+      origin: "manual",
+      levels: source.levels.map(function (level, index) {
+        return {
+          id: id + "-l" + (index + 1),
+          title: level.title,
+          tip: level.tip,
+          mode: level.mode,
+          targetWpm: level.targetWpm || 24,
+          items: level.items.map(function (item) {
+            var value = window.APP_DATA.normalizeItem(item);
+            return { t: value.t, m: value.m };
+          })
+        };
+      })
+    };
+    window.Store.addCustomCourse(copy);
+    window.APP_DATA.refresh();
+    return copy;
+  }
+
+  function requestBuiltinCopy(courseId, callback) {
+    var course = window.APP_DATA.courses.filter(function (c) { return c.id === courseId; })[0];
+    if (!course) return;
+    confirmAction(t("manage.copyTitle"), t("manage.copyDescLine", { title: course.title }), t("manage.copyConfirm"), function () {
+      var copy = copyBuiltinCourse(courseId);
+      if (!copy) return;
+      refreshManage();
+      toast(t("manage.copied", { title: copy.title }));
+      if (callback) callback(copy);
+    });
+  }
+
+  function openNewCourseModal() {
+    var state = { mode: "word" };
+    openModal(
+      '<div class="modal-head"><h3>' + t("manage.newCourse") + '</h3><button class="icon-btn" data-modal-close aria-label="' + escapeHtml(t("session.close")) + '">' + icon("close") + "</button></div>" +
+      '<div class="modal-body">' +
+        '<label class="editor-field"><span>' + t("manage.courseName") + "</span>" +
+          '<input class="input-text" id="newCourseTitle" maxlength="40" placeholder="' + escapeHtml(t("manage.courseNamePlaceholder")) + '"></label>' +
+        '<div class="editor-field"><span>' + t("manage.courseType") + "</span>" +
+          '<div class="segmented" id="newCourseMode">' +
+            '<button class="active" data-mode="word">' + t("manage.typeWord") + "</button>" +
+            '<button data-mode="sentence">' + t("manage.typeSentence") + "</button>" +
+          "</div></div>" +
+        '<div class="modal-actions"><button class="ghost-btn" data-modal-close>' + t("import.cancel") + "</button>" +
+          '<button class="btn primary" id="newCourseCreate">' + t("manage.create") + "</button></div>" +
+      "</div>"
+    );
+    var modeBox = $("#newCourseMode");
+    if (modeBox) {
+      modeBox.addEventListener("click", function (event) {
+        var btn = event.target.closest("[data-mode]");
+        if (!btn) return;
+        state.mode = btn.getAttribute("data-mode");
+        $$("[data-mode]", modeBox).forEach(function (node) { node.classList.toggle("active", node === btn); });
+      });
+    }
+    var createBtn = $("#newCourseCreate");
+    if (createBtn) {
+      createBtn.addEventListener("click", function () {
+        var input = $("#newCourseTitle");
+        var title = (input && input.value.trim()) || t("manage.untitled");
+        var id = newContentId("usr");
+        var course = {
+          id: id,
+          title: title.slice(0, 40),
+          short: t("manage.tag"),
+          desc: t("manage.newCourseDesc"),
+          mode: state.mode,
+          sequential: false,
+          targetWpm: 24,
+          origin: "manual",
+          levels: [{
+            id: id + "-l1",
+            title: t("manage.levelTitle", { n: 1 }),
+            tip: t("manage.levelTip"),
+            mode: state.mode,
+            targetWpm: 24,
+            items: []
+          }]
+        };
+        window.Store.addCustomCourse(course);
+        window.APP_DATA.refresh();
+        closeModal();
+        renderManage();
+        updateProfile();
+        toast(t("manage.created", { title: course.title }));
+        openLevelEditor(course.id, course.levels[0].id);
+      });
+    }
+  }
+
+  function openRenameCourseModal(courseId) {
+    var view = findCourseView(courseId);
+    var course = editableCourse(courseId);
+    if (!view || !course) return;
+    openModal(
+      '<div class="modal-head"><h3>' + t("manage.rename") + '</h3><button class="icon-btn" data-modal-close aria-label="' + escapeHtml(t("session.close")) + '">' + icon("close") + "</button></div>" +
+      '<div class="modal-body">' +
+        '<label class="editor-field"><span>' + t("manage.courseName") + "</span>" +
+          '<input class="input-text" id="renameCourseTitle" maxlength="40" value="' + escapeHtml(view.title) + '"></label>' +
+        '<div class="modal-actions"><button class="ghost-btn" data-modal-close>' + t("import.cancel") + "</button>" +
+          '<button class="btn primary" id="renameCourseSave">' + t("manage.save") + "</button></div>" +
+      "</div>"
+    );
+    var saveBtn = $("#renameCourseSave");
+    if (saveBtn) {
+      saveBtn.addEventListener("click", function () {
+        var input = $("#renameCourseTitle");
+        var title = input && input.value.trim();
+        if (!title) {
+          toast(t("manage.nameRequired"));
+          return;
+        }
+        course.title = title.slice(0, 40);
+        persistContent();
+        closeModal();
+        refreshManage();
+        toast(t("manage.renamed"));
+      });
+    }
+  }
+
+  function openLevelEditor(courseId, levelId) {
+    var course = editableCourse(courseId);
+    var levelView = findLevelView(courseId, levelId);
+    if (!course || !levelView) return;
+    var level = course.levels.filter(function (item) { return item.id === levelId; })[0];
+    if (!level) return;
+    var timer = null;
+    var displayTitle = level.title != null ? level.title : levelView.title;
+
+    function flush() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      persistContent();
+    }
+
+    function schedule() {
+      if (timer) clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        timer = null;
+        persistContent();
+      }, 250);
+    }
+
+    var isSentence = (level.mode || levelView.mode) === "sentence";
+    openModal(
+      '<div class="modal-head"><h3>' + escapeHtml(findCourseView(courseId).title) + ' · ' + t("manage.editLevel") + '</h3><button class="icon-btn" data-modal-close aria-label="' + escapeHtml(t("session.close")) + '">' + icon("close") + "</button></div>" +
+      '<div class="modal-body editor-body">' +
+        '<label class="editor-field"><span>' + t("manage.levelName") + "</span>" +
+          '<input class="input-text" id="editorLevelTitle" maxlength="40" value="' + escapeHtml(displayTitle) + '"></label>' +
+        '<p class="editor-hint">' + (isSentence ? t("manage.hintSentence") : t("manage.hintWord")) + "</p>" +
+        '<div class="editor-rows" id="editorRows"></div>' +
+        '<div class="editor-foot"><button class="ghost-btn small" id="editorAdd">' + icon("plus") + t("manage.addRow") + "</button>" +
+          '<span class="editor-count" id="editorCount"></span></div>' +
+        '<div class="modal-actions"><button class="btn primary" data-modal-close>' + t("manage.done") + "</button></div>" +
+      "</div>", true
+    );
+
+    var rows = $("#editorRows");
+    var countLabel = $("#editorCount");
+
+    function rowHtml(item, index) {
+      var text = item && item.t ? item.t : "";
+      var meaning = item && item.m ? item.m : "";
+      return '<div class="editor-row" data-index="' + index + '">' +
+        '<span class="editor-idx">' + String(index + 1).padStart(2, "0") + "</span>" +
+        '<input class="editor-text" spellcheck="false" value="' + escapeHtml(text) + '" placeholder="' + escapeHtml(isSentence ? t("manage.sentencePlaceholder") : t("manage.wordPlaceholder")) + '">' +
+        '<input class="editor-meaning" spellcheck="false" value="' + escapeHtml(meaning) + '" placeholder="' + escapeHtml(isSentence ? t("manage.translationPlaceholder") : t("manage.meaningPlaceholder")) + '">' +
+        '<div class="editor-actions">' +
+          '<button class="icon-btn tiny" data-row-act="up" title="' + escapeHtml(t("manage.moveUp")) + '" aria-label="' + escapeHtml(t("manage.moveUp")) + '">' + icon("arrow-left") + "</button>" +
+          '<button class="icon-btn tiny" data-row-act="down" title="' + escapeHtml(t("manage.moveDown")) + '" aria-label="' + escapeHtml(t("manage.moveDown")) + '">' + icon("arrow-right") + "</button>" +
+          '<button class="icon-btn tiny" data-row-act="del" title="' + escapeHtml(t("manage.deleteRow")) + '" aria-label="' + escapeHtml(t("manage.deleteRow")) + '">' + icon("trash") + "</button>" +
+        "</div></div>";
+    }
+
+    function renderRows() {
+      rows.innerHTML = level.items.length
+        ? level.items.map(rowHtml).join("")
+        : '<p class="editor-empty">' + t("manage.emptyLevel") + "</p>";
+      if (countLabel) countLabel.textContent = t("manage.rowCount", { n: level.items.length });
+    }
+
+    renderRows();
+
+    var titleInput = $("#editorLevelTitle");
+    if (titleInput) {
+      titleInput.addEventListener("input", function () {
+        level.title = titleInput.value;
+        schedule();
+      });
+    }
+
+    rows.addEventListener("input", function (event) {
+      var row = event.target.closest(".editor-row");
+      if (!row) return;
+      var index = Number(row.getAttribute("data-index"));
+      var item = level.items[index];
+      if (!item) return;
+      if (event.target.classList.contains("editor-text")) item.t = event.target.value;
+      else if (event.target.classList.contains("editor-meaning")) item.m = event.target.value;
+      else return;
+      schedule();
+    });
+
+    rows.addEventListener("click", function (event) {
+      var btn = event.target.closest("[data-row-act]");
+      if (!btn) return;
+      var row = btn.closest(".editor-row");
+      var index = Number(row.getAttribute("data-index"));
+      var act = btn.getAttribute("data-row-act");
+      if (act === "del") {
+        level.items.splice(index, 1);
+      } else if (act === "up" && index > 0) {
+        var up = level.items.splice(index, 1)[0];
+        level.items.splice(index - 1, 0, up);
+      } else if (act === "down" && index < level.items.length - 1) {
+        var down = level.items.splice(index, 1)[0];
+        level.items.splice(index + 1, 0, down);
+      } else {
+        return;
+      }
+      renderRows();
+      flush();
+    });
+
+    var addBtn = $("#editorAdd");
+    if (addBtn) {
+      addBtn.addEventListener("click", function () {
+        level.items.push({ t: "", m: "" });
+        renderRows();
+        var input = rows.querySelectorAll(".editor-text");
+        if (input.length) input[input.length - 1].focus();
+        schedule();
+      });
+    }
+
+    $$("[data-modal-close]", els.modal).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        flush();
+        if (activeView === "manage") renderManage();
+        else if (activeView === "courses") renderCourses();
+      });
+    });
+  }
+
+  function splitLevel(courseId, levelId) {
+    var course = editableCourse(courseId);
+    if (!course) return;
+    var index = -1;
+    for (var i = 0; i < course.levels.length; i++) {
+      if (course.levels[i].id === levelId) index = i;
+    }
+    var level = index >= 0 ? course.levels[index] : null;
+    if (!level || level.items.length < 2) return;
+    var viewLevel = findLevelView(courseId, levelId);
+    var title = level.title != null ? level.title : (viewLevel ? viewLevel.title : "");
+    var half = Math.ceil(level.items.length / 2);
+    var tail = level.items.splice(half);
+    course.levels.splice(index + 1, 0, {
+      id: newContentId("usr-lv"),
+      baseId: null,
+      title: title + " · 2",
+      tip: level.tip != null ? level.tip : (viewLevel ? viewLevel.tip : ""),
+      mode: level.mode || (viewLevel && viewLevel.mode) || course.mode,
+      targetWpm: level.targetWpm || (viewLevel && viewLevel.targetWpm) || course.targetWpm,
+      items: tail
+    });
+    persistContent();
+    refreshManage();
+    toast(t("manage.splitDone"));
+  }
+
+  function mergeLevel(courseId, levelId) {
+    var course = editableCourse(courseId);
+    if (!course) return;
+    var index = -1;
+    for (var i = 0; i < course.levels.length; i++) {
+      if (course.levels[i].id === levelId) index = i;
+    }
+    var level = index >= 0 ? course.levels[index] : null;
+    var next = level ? course.levels[index + 1] : null;
+    if (!level || !next || next.mode !== level.mode) return;
+    level.items = level.items.concat(next.items);
+    course.levels.splice(index + 1, 1);
+    persistContent();
+    refreshManage();
+    toast(t("manage.mergeDone"));
+  }
+
+  function addLevelToCourse(courseId) {
+    var course = editableCourse(courseId);
+    if (!course) return;
+    var level = {
+      id: newContentId("usr-lv"),
+      baseId: null,
+      title: t("manage.levelTitle", { n: course.levels.length + 1 }),
+      tip: t("manage.levelTip"),
+      mode: course.mode,
+      targetWpm: 24,
+      items: []
+    };
+    course.levels.push(level);
+    persistContent();
+    refreshManage();
+    toast(t("manage.levelAdded"));
   }
 
   /* ---------- 统计 ---------- */
@@ -1092,6 +1607,7 @@
   function renderView(name) {
     if (name === "home") renderHome();
     else if (name === "courses") renderCourses();
+    else if (name === "manage") renderManage();
     else if (name === "stats") renderStats();
     else if (name === "errors") renderErrors();
     else if (name === "settings") renderSettings();
@@ -1146,6 +1662,12 @@
     if (practiceMatch) {
       if (window.Practice.isActive()) return;
       var id = decodeURIComponent(practiceMatch[1]);
+      var foundLevel = window.APP_DATA.findLevel(id);
+      if (foundLevel && (!foundLevel.level.items || !foundLevel.level.items.length)) {
+        toast(t("practice.empty"));
+        location.hash = "#/manage";
+        return;
+      }
       var started = window.Practice.startLevel(id);
       if (!started) {
         toast(t("practice.expired"));
@@ -1314,12 +1836,6 @@
       location.hash = "#/" + target.getAttribute("data-view");
     } else if (action === "import-content") {
       openImportModal();
-    } else if (action === "remove-import") {
-      window.Store.removeImport(target.getAttribute("data-import-id"));
-      window.APP_DATA.setImports(window.Store.state.imports);
-      renderCourses();
-      updateProfile();
-      toast(t("import.removed"));
     } else if (action === "test-voice") {
       if (!window.Speech || !window.Speech.test()) toast(t("voice.unsupported"));
     } else if (action === "review") {
@@ -1352,6 +1868,98 @@
           toast(t("errors.cleared"));
         });
       }
+    }
+  });
+
+  // 内容管理页操作
+  $("#views").addEventListener("click", function (event) {
+    var btn = event.target.closest("[data-manage]");
+    if (!btn || btn.disabled) return;
+    var action = btn.getAttribute("data-manage");
+    var courseId = btn.getAttribute("data-course-id") || "";
+    var levelId = btn.getAttribute("data-level-id") || "";
+
+    if (action === "new-course") {
+      openNewCourseModal();
+      return;
+    }
+    if (action === "import") {
+      openImportModal();
+      return;
+    }
+
+    var view = findCourseView(courseId);
+
+    if (action === "copy-course") {
+      requestBuiltinCopy(courseId);
+      return;
+    }
+
+    if (action === "edit-level") {
+      if (view) openLevelEditor(courseId, levelId);
+      return;
+    }
+
+    if (!view) return;
+
+    if (action === "rename-course") {
+      openRenameCourseModal(courseId);
+    } else if (action === "delete-course") {
+      confirmAction(
+        t("manage.deleteCourse"),
+        t("manage.deleteCourseDesc", { title: view.title, levels: view.levels.length }),
+        t("manage.confirmDelete"),
+        function () {
+          if (view.builtin) {
+            var override = editableCourse(courseId);
+            if (!override) return;
+            override.deleted = true;
+            persistContent();
+          } else {
+            window.Store.removeCustomCourse(courseId);
+            window.APP_DATA.refresh();
+          }
+          if (activeView === "manage") renderManage();
+          else if (activeView === "courses") renderCourses();
+          updateProfile();
+          toast(t("manage.courseDeleted", { title: view.title }));
+        }
+      );
+    } else if (action === "add-level") {
+      addLevelToCourse(courseId);
+    } else if (action === "level-up" || action === "level-down") {
+      var course = editableCourse(courseId);
+      if (!course) return;
+      var at = -1;
+      for (var i = 0; i < course.levels.length; i++) {
+        if (course.levels[i].id === levelId) at = i;
+      }
+      var swap = action === "level-up" ? at - 1 : at + 1;
+      if (at < 0 || swap < 0 || swap >= course.levels.length) return;
+      var moved = course.levels.splice(at, 1)[0];
+      course.levels.splice(swap, 0, moved);
+      persistContent();
+      refreshManage();
+    } else if (action === "split-level") {
+      splitLevel(courseId, levelId);
+    } else if (action === "merge-level") {
+      mergeLevel(courseId, levelId);
+    } else if (action === "delete-level") {
+      var levelView = findLevelView(courseId, levelId);
+      if (!levelView) return;
+      confirmAction(
+        t("manage.deleteLevel"),
+        t("manage.deleteLevelDesc", { title: levelView.title }),
+        t("manage.confirmDelete"),
+        function () {
+          var target = editableCourse(courseId);
+          if (!target) return;
+          target.levels = target.levels.filter(function (item) { return item.id !== levelId; });
+          persistContent();
+          refreshManage();
+          toast(t("manage.levelDeleted"));
+        }
+      );
     }
   });
 
@@ -1453,7 +2061,7 @@
     window.I18N.setLang(window.Store.state.settings.language || "zh");
     window.I18N.apply(document);
   }
-  window.APP_DATA.setImports(window.Store.state.imports || []);
+  window.APP_DATA.bootstrap();
   window.addEventListener("hashchange", route);
   route();
 })();

@@ -49,6 +49,7 @@
     <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.3l3.4 2"/></symbol>
     <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.4 2.7 5.5 6 .9-4.4 4.3 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.3 9.8l6-.9z"/></symbol>
     <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="m14.5 5.5 4 4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/><path d="m3 17.5 9 5 9-5"/></symbol>
   </svg>
 
   <input id="keySink" class="key-sink" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" tabindex="-1" aria-hidden="true">
@@ -66,6 +67,7 @@
       <nav class="nav" id="nav">
         <a href="#/home" data-nav="home"><svg><use href="#i-home"/></svg><span data-i18n="nav.home">练习台</span></a>
         <a href="#/courses" data-nav="courses"><svg><use href="#i-grid"/></svg><span data-i18n="nav.courses">课程库</span></a>
+        <a href="#/manage" data-nav="manage"><svg><use href="#i-layers"/></svg><span data-i18n="nav.manage">内容管理</span></a>
         <a href="#/stats" data-nav="stats"><svg><use href="#i-chart"/></svg><span data-i18n="nav.stats">数据统计</span></a>
         <a href="#/errors" data-nav="errors"><svg><use href="#i-book"/></svg><span data-i18n="nav.errors">错词本</span><em class="nav-badge" id="navErrorBadge" hidden>0</em></a>
         <a href="#/settings" data-nav="settings"><svg><use href="#i-settings"/></svg><span data-i18n="nav.settings">设置</span></a>
@@ -101,6 +103,7 @@
       <div class="views" id="views">
         <section class="view" data-view="home" hidden></section>
         <section class="view" data-view="courses" hidden></section>
+        <section class="view" data-view="manage" hidden></section>
         <section class="view" data-view="stats" hidden></section>
         <section class="view" data-view="errors" hidden></section>
         <section class="view" data-view="settings" hidden></section>

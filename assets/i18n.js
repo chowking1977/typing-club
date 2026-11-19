@@ -68,19 +68,30 @@
     Array.prototype.slice.call(root.querySelectorAll(selector)).forEach(fn);
   }
 
+  // 缺词时返回 null，让元素保留 HTML 里的原文，避免把键名写进界面或提示
+  function translated(key) {
+    if (key == null) return null;
+    var value = t(key);
+    return value === key ? null : value;
+  }
+
   function apply(root) {
     var scope = root || document;
     each(scope, "[data-i18n]", function (node) {
-      node.textContent = t(node.getAttribute("data-i18n"));
+      var value = translated(node.getAttribute("data-i18n"));
+      if (value != null) node.textContent = value;
     });
     each(scope, "[data-i18n-title]", function (node) {
-      node.setAttribute("title", t(node.getAttribute("data-i18n-title")));
+      var value = translated(node.getAttribute("data-i18n-title"));
+      if (value != null) node.setAttribute("title", value);
     });
     each(scope, "[data-i18n-aria]", function (node) {
-      node.setAttribute("aria-label", t(node.getAttribute("data-i18n-aria")));
+      var value = translated(node.getAttribute("data-i18n-aria"));
+      if (value != null) node.setAttribute("aria-label", value);
     });
     each(scope, "[data-i18n-placeholder]", function (node) {
-      node.setAttribute("placeholder", t(node.getAttribute("data-i18n-placeholder")));
+      var value = translated(node.getAttribute("data-i18n-placeholder"));
+      if (value != null) node.setAttribute("placeholder", value);
     });
     var desc = document.querySelector('meta[name="description"]');
     if (desc) desc.setAttribute("content", t("app.desc"));

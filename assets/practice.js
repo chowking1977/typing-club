@@ -27,6 +27,7 @@
 
   var S = null;
   var audio = null;
+  var lastResult = null;
 
   var KEY_ROWS = [
     [
@@ -251,7 +252,7 @@
     el.result.hidden = true;
   }
 
-  function renderStage() {
+  function renderStage(silent) {
     var item = currentItem();
     var hasSpeak = window.Speech ? window.Speech.supported() : !!window.speechSynthesis;
     var unitKey = S.cfg.mode === "sentence" ? "practice.playSentence" : "practice.playWord";
@@ -295,7 +296,7 @@
       speakBtn.classList.add("is-speaking");
     }
     highlightExpected(item.t[S.typed.length]);
-    if (S.started) autoSpeak(item.t);
+    if (S.started && !silent) autoSpeak(item.t);
   }
 
   function makeChar(ch) {
@@ -551,6 +552,7 @@
   }
 
   function renderResult(saved, summary) {
+    lastResult = { saved: saved, summary: summary };
     var s = saved.session;
     var starHtml = "";
     for (var i = 0; i < 3; i++) {
@@ -671,6 +673,7 @@
     var level = found.level;
     var next = window.APP_DATA.nextLevel(levelId);
     var nextCfg = null;
+    if (!level.items || !level.items.length) return null;
     if (next && window.Store.isUnlocked(next.course, next.index)) {
       nextCfg = { levelId: next.level.id };
     }
@@ -717,12 +720,10 @@
 
     el.layer.hidden = false;
     el.result.hidden = true;
+    lastResult = null;
     document.body.classList.add("is-practicing");
     renderShell();
-    if (!el.keyboard.dataset.ready) {
-      buildKeyboard();
-      el.keyboard.dataset.ready = "1";
-    }
+    buildKeyboard();
     el.keyboard.querySelectorAll(".key").forEach(function (node) {
       node.classList.remove("expected", "pressed", "heat-1", "heat-2", "heat-3");
     });
@@ -753,6 +754,7 @@
       S.finished = true;
       teardownSession();
     }
+    lastResult = null;
     document.body.classList.remove("is-practicing");
     if (el.layer) el.layer.hidden = true;
     if (el.result) el.result.hidden = true;
@@ -793,6 +795,38 @@
     handleChar(key);
   }
 
+  // 切换界面语言后重建键盘、练习台与图标提示，避免残留旧语言
+  function refreshLanguage() {
+    if (window.I18N) window.I18N.apply(el.layer);
+    buildKeyboard();
+    if (!S) return;
+    var found = S.cfg.levelId ? window.APP_DATA.findLevel(S.cfg.levelId) : null;
+    if (found) {
+      S.cfg.courseTitle = found.course.title;
+      S.cfg.title = found.level.title;
+      S.cfg.tip = found.level.tip || "";
+      S.cfg.levelNumber = found.index + 1;
+    } else if (S.cfg.isReview) {
+      S.cfg.courseTitle = t("review.course");
+      S.cfg.title = t("review.title");
+      S.cfg.tip = t("review.tip");
+    } else if (String(S.cfg.levelId).indexOf("custom-") === 0) {
+      S.cfg.courseTitle = t("custom.course");
+      S.cfg.title = t("custom.levelTitle");
+      S.cfg.tip = t("custom.tip");
+    }
+    el.course.textContent = S.cfg.courseTitle + (S.cfg.levelNumber ? " · " + t("practice.level", { n: S.cfg.levelNumber }) : "");
+    el.title.textContent = S.cfg.title;
+    el.foot.textContent = S.cfg.tip || t(S.cfg.mode === "sentence" ? "practice.tip.sentence" : "practice.tip.word");
+    if (!el.result.hidden && lastResult) {
+      renderResult(lastResult.saved, lastResult.summary);
+    } else {
+      renderStage(true);
+      Object.keys(S.wrongKeys).forEach(function (key) { markHeat(key, S.wrongKeys[key]); });
+    }
+    updateLive();
+  }
+
   function startReview() {
     var items = window.Store.errors().slice(0, 30).map(function (entry) {
       return { t: entry.word, m: entry.meaning };
@@ -820,6 +854,8 @@
     if (event.target.closest("button")) return;
     focusSink();
   });
+
+  if (window.I18N) window.I18N.onChange(refreshLanguage);
 
   if (window.Speech) {
     window.Speech.onState(function (speaking) {

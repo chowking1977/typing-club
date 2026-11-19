@@ -281,8 +281,9 @@
   }
 
   function buildBaseCourses() {
+    var overrides = (window.Store && window.Store.state.courseOverrides) || {};
     return baseCourses.map(function (course) {
-      return {
+      var view = {
         id: course.id,
         title: tr("course." + course.id + ".title", course.title),
         short: tr("course." + course.id + ".short", course.short),
@@ -291,18 +292,54 @@
         sequential: course.sequential,
         targetWpm: course.targetWpm,
         imported: false,
+        builtin: true,
         levels: course.levels.map(function (level, index) {
           return {
             id: level.id,
             title: tr(levelKey(course.id, index, "title"), level.title),
             tip: tr(levelKey(course.id, index, "tip"), level.tip),
-            mode: level.mode,
-            targetWpm: level.targetWpm,
+            mode: level.mode || course.mode,
+            targetWpm: level.targetWpm || course.targetWpm,
             items: level.items
           };
         })
       };
+      var override = overrides[course.id];
+      if (!override) return view;
+      if (override.deleted) return null;
+      return applyCourseOverride(view, override);
+    }).filter(Boolean);
+  }
+
+  // 把用户对内置课程的修改叠加到原始课程上。
+  // 关卡保留 baseId，未改名的关卡继续使用当前语言的内置文案。
+  function applyCourseOverride(course, override) {
+    var baseById = {};
+    course.levels.forEach(function (level) { baseById[level.id] = level; });
+    var levels = (override.levels || course.levels).map(function (item) {
+      var base = item.baseId ? baseById[item.baseId] : (baseById[item.id] || null);
+      return {
+        id: item.id,
+        title: item.title != null ? item.title : (base ? base.title : ""),
+        tip: item.tip != null ? item.tip : (base ? base.tip : ""),
+        mode: item.mode || (base && base.mode) || override.mode || course.mode,
+        targetWpm: item.targetWpm || (base && base.targetWpm) || course.targetWpm,
+        items: (item.items || []).map(normalizeItem)
+      };
     });
+    return {
+      id: course.id,
+      title: override.title != null ? override.title : course.title,
+      short: course.short,
+      desc: course.desc,
+      mode: override.mode || course.mode,
+      sequential: override.sequential != null ? !!override.sequential : course.sequential,
+      targetWpm: override.targetWpm || course.targetWpm,
+      imported: false,
+      builtin: true,
+      edited: true,
+      levels: levels
+    };
   }
 
   function buildAchievements() {
@@ -317,10 +354,9 @@
     });
   }
 
-  var importedCourses = [];
+  var customCourseViews = [];
   var courses = [];
   var achievementViews = [];
-  var currentImports = [];
 
   function buildImportedCourses(imports) {
     return (imports || []).map(function (pack) {
@@ -364,15 +400,74 @@
     }).filter(function (course) { return course.levels.length; });
   }
 
-  function setImports(imports) {
-    currentImports = imports || [];
-    importedCourses = buildImportedCourses(currentImports);
-    courses = buildBaseCourses().concat(importedCourses);
+  function buildCustomCourses(list) {
+    return (list || []).map(function (course) {
+      return {
+        id: course.id,
+        title: course.title,
+        short: course.short || tr("manage.tag", "自建"),
+        desc: course.desc || "",
+        mode: course.mode || "word",
+        sequential: !!course.sequential,
+        targetWpm: course.targetWpm || 24,
+        origin: course.origin || "manual",
+        sourceImportId: course.sourceImportId || "",
+        imported: course.origin === "import",
+        custom: true,
+        levels: (course.levels || []).map(function (level) {
+          return {
+            id: level.id,
+            title: level.title,
+            tip: level.tip || "",
+            mode: level.mode || course.mode || "word",
+            targetWpm: level.targetWpm || 24,
+            items: (level.items || []).map(function (item) {
+              return typeof item === "string" ? { t: item, m: "" } : { t: item.t, m: item.m || "" };
+            })
+          };
+        })
+      };
+    });
+  }
+
+  function rebuild() {
+    customCourseViews = buildCustomCourses(window.Store.state.customCourses || []);
+    courses = buildBaseCourses().concat(customCourseViews);
     achievementViews = buildAchievements();
     window.APP_DATA.courses = courses;
     window.APP_DATA.achievements = achievementViews;
   }
 
+  function refresh() {
+    rebuild();
+  }
+
+  function makeImportCourse(pack) {
+    var built = buildImportedCourses([pack])[0];
+    if (!built) return null;
+    built.origin = "import";
+    built.sourceImportId = pack.id;
+    return built;
+  }
+
+  // 把旧版 imports 数据迁移成可编辑课程，并刷新视图
+  function bootstrap() {
+    var state = window.Store.state;
+    if (!state.contentMigrated) {
+      var list = state.customCourses || [];
+      (state.imports || []).forEach(function (pack) {
+        var built = buildImportedCourses([pack])[0];
+        if (!built) return;
+        built.origin = "import";
+        built.sourceImportId = pack.id;
+        list.push(built);
+      });
+      state.customCourses = list;
+      state.contentMigrated = true;
+      window.Store.saveContent();
+    }
+    refresh();
+  }
   function allLevels() {
     var out = [];
     courses.forEach(function (course) {
@@ -417,9 +512,8 @@
     findLevel: findLevel,
     nextLevel: nextLevel,
     normalizeItem: normalizeItem,
-    setImports: setImports,
-    refresh: function () { setImports(currentImports); }
+    bootstrap: bootstrap,
+    refresh: refresh,
+    makeImportCourse: makeImportCourse
   };
-
-  setImports([]);
 })();

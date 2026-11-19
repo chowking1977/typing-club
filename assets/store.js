@@ -27,6 +27,9 @@
       xp: 0,
       levels: {},
       imports: [],
+      customCourses: [],
+      courseOverrides: {},
+      contentMigrated: false,
       sessions: [],
       daily: {},
       errors: {},
@@ -67,6 +70,9 @@
     merged.meta = Object.assign(base.meta, parsed.meta || {});
     merged.levels = parsed.levels || {};
     merged.imports = Array.isArray(parsed.imports) ? parsed.imports : [];
+    merged.customCourses = Array.isArray(parsed.customCourses) ? parsed.customCourses : [];
+    merged.courseOverrides = parsed.courseOverrides && typeof parsed.courseOverrides === "object" ? parsed.courseOverrides : {};
+    merged.contentMigrated = parsed.contentMigrated === true;
     merged.sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
     merged.daily = parsed.daily || {};
     merged.errors = parsed.errors || {};
@@ -433,6 +439,41 @@
     save();
   }
 
+  function findCustomCourse(id) {
+    for (var i = 0; i < state.customCourses.length; i++) {
+      if (state.customCourses[i].id === id) return state.customCourses[i];
+    }
+    return null;
+  }
+
+  function addCustomCourse(course) {
+    state.customCourses.push(course);
+    save();
+    return course;
+  }
+
+  function removeCustomCourse(id) {
+    state.customCourses = state.customCourses.filter(function (course) { return course.id !== id; });
+    state.imports = state.imports.filter(function (pack) { return pack.id !== id; });
+    save();
+  }
+
+  // 内置课程的修改记录：按课程 id 保存标题/关卡/删除标记
+  function getCourseOverride(id) {
+    return state.courseOverrides[id] || null;
+  }
+
+  function setCourseOverride(id, data) {
+    state.courseOverrides[id] = data;
+    save();
+    return data;
+  }
+
+  // 就地修改 customCourses / courseOverrides 后调用，把内容写入本地存储
+  function saveContent() {
+    save();
+  }
+
   function exportJson() {
     return JSON.stringify(state, null, 2);
   }
@@ -478,6 +519,12 @@
     recordSession: recordSession,
     addImport: addImport,
     removeImport: removeImport,
+    findCustomCourse: findCustomCourse,
+    addCustomCourse: addCustomCourse,
+    removeCustomCourse: removeCustomCourse,
+    getCourseOverride: getCourseOverride,
+    setCourseOverride: setCourseOverride,
+    saveContent: saveContent,
     updateSettings: updateSettings,
     exportJson: exportJson,
     importJson: importJson,
